@@ -1,0 +1,62 @@
+#!/bin/bash
+
+secret="eff84fb9d33c49760d23017f8a385e96d9d74caee2e147d3b981f1d8374a4dbb"
+
+[ ! -z "$1" ] || exit
+
+#default: german<->english
+#availables: de,el,en,es,fr,it,pl,pt,ru,sl,tr,zh.
+language="deen"
+
+# parse user switches
+while getopts "l:" arg; do
+	case "${arg}" in
+		l)
+			arg=${OPTARG}
+			( [[ "$arg" =~ ^[a-z]{4}$ ]] ) || exit
+			language="$arg"
+			;;
+	esac
+done
+shift $((OPTIND-1))
+
+j=$(curl -sH "X-Secret: $secret" "https://api.pons.com/v1/dictionary?l=${language}&q=$1")
+
+# remove html tags
+j=$(echo $j | sed -E "s/<[^>]+>|&[^;]+;//g")
+#colors
+NC='\033[0m'
+WHITE='\033[1;37m'
+CYAN='\033[1;36m'
+GREEN='\033[1;32m'
+BLUE='\033[1;34m'
+
+lang=$(echo $j | jq -r ".[].lang")
+headword_full=$(echo $j | jq -r ".[].hits[].roms[].headword_full" | head -n 1)
+word_class=$(echo $j | jq -r ".[].hits[].roms[].wordclass" | head -n 1)
+
+readarray -t meanings < <(echo $j | jq -r -c ".[].hits[].roms[]")
+
+echo -e "${WHITE}Language:${NC} $lang"
+
+for i in "${meanings[@]}"; do
+	echo -ne "${WHITE}Word: ${BLUE}"
+	echo "$i" | jq -r ".headword_full"
+	echo -ne "${WHITE}Class: ${CYAN}"
+	echo "$i" | jq -r ".wordclass"
+	echo -ne "${NC}"
+	readarray -t meaning < <(echo $i | jq -r -c ".arabs[]")
+
+	for k in "${meaning[@]}"; do
+		echo -ne ${GREEN}
+		echo $k | jq -r ".header"
+		echo -ne ${NC}
+		readarray -t translations < <(echo $k | jq -r -c ".translations[]")
+		for j in "${translations[@]}"; do
+			source_word=$(echo $j | jq -r ".source" | tr "\n" "#" | sed -E "s/#|^ //g")
+			target_word=$(echo $j | jq -r ".target" | tr "\n" "#" | sed "s/#//g")
+			echo -e "   $source_word => ${WHITE}$target_word${NC}"
+		done
+	done
+	echo
+done
